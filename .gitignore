@@ -194,3 +194,9 @@ FakesAssemblies/
 
 # Visual Studio 6 workspace options file
 *.opt
+
+# Visual Micro files
+__vm/
+*.sln
+*.vcxproj
+*.filters
