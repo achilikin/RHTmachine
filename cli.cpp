@@ -25,19 +25,25 @@
 
 #include "main.h"
 #include "serial.h"
+#include "ossd_i2c.h"
 #include "serial_cli.h"
 
 // list of supported commands 
-static const char usage[] PROGMEM =
+static const char ps_help[] PROGMEM =
 	"  mem\n"             // show available memory
 	"  status\n"          // show current settings
-	"  print history\n"   // print temperature and humidity history(12/24h)
+	"  version\n"         // show version info
+	"  print now\n"       // print current data
+	"  print log [n]\n"   // print data history (12/24h), n records
 	"  config on|off\n"   // turn on configuration mode
 	"  set gauge 0-255\n" // calbrate gauge in configuration mode
-	"  echo rht|thist|verbose on|off"; // debug echo on/off
+	"  set contrast 0-255\n"
+	"  echo rht|thist|extra|verbose on|off"; // debug echo on/off
 static const char ps_on[] PROGMEM = "on";
 static const char ps_off[] PROGMEM = "off";
 static const char ps_config[] PROGMEM = "config";
+const char ps_version[] PROGMEM = "version";
+const char ps_verstr[] PROGMEM = "2015-11-16, 20,402/1339 (66/65%) bytes";
 
 const char *is_on(uint8_t bit)
 {
@@ -48,21 +54,23 @@ const char *is_on(uint8_t bit)
 
 void print_status(uint8_t echo_only)
 {
+	static const char *disp[3] = { PSTR("temperature"), PSTR("humidity"), PSTR("light") };
+
 	if (!echo_only) {
 		printf_P(PSTR("Uptime: "));
-		print_time(uptime);
+		print_time(uptime, 1);
 		printf_P(PSTR("\nmachine   : "));
 		printf_P((pins & CD_ATTACHED) ? PSTR("at") : PSTR("de"));
 		printf_P(PSTR("tached\n"));
 		printf_P(PSTR("display   : "));
-		if (pins & DISP_RH)
-			printf_P(PSTR("humidity"));
-		else
-			printf_P(PSTR("temperature"));
+		printf_P(disp[get_disp_mode()]);
+		printf_P(PSTR("\nalt mode  : "));
+		printf_P(disp[1 + (pins & ALT_PIN)]);
 		printf_P(PSTR("\n24 hour   : %s\n"), is_on(pins & HIST_24H));
 		printf_P(PSTR("config mod: %s\n"), is_on(flags & CONFIG_MODE));
 	}
-	printf_P(PSTR("verbose   : %s\n"), is_on(flags & VERBOSE_MODE));
+	printf_P(PSTR("verbose   : %s\n"), is_on(flags & ECHO_VERBOSE));
+	printf_P(PSTR("extra echo: %s\n"), is_on(flags & ECHO_EXTRA));
 	printf_P(PSTR("thist echo: %s\n"), is_on(flags & ECHO_THIST));
 	printf_P(PSTR("rht echo  : %s\n"), is_on(flags & ECHO_RHT));
 }
@@ -76,7 +84,12 @@ int8_t cli_proc(char *buf, void *ptr)
 	arg = get_arg(cmd);
 
 	if (str_is(cmd, PSTR("help"))) {
-		puts_P(usage);
+		puts_P(ps_help);
+		return 0;
+	}
+
+	if (str_is(cmd, ps_version)) {
+		puts_P(ps_verstr);
 		return 0;
 	}
 
@@ -96,9 +109,15 @@ int8_t cli_proc(char *buf, void *ptr)
 	}
 
 	if (str_is(cmd, PSTR("print"))) {
-		if (!str_is(arg, PSTR("history")))
+		if (str_is(arg, PSTR("log")))
+			print_hist(atoi(arg), 1);
+		else if (str_is(arg, PSTR("now"))) {
+			char buf[24];
+			get_rht_data(buf);
+			printf_P(PSTR("%s %u\n"), light);
+		}
+		else
 			return CLI_EARG;
-		print_hist();
 		return 0;
 	}
 
@@ -109,28 +128,31 @@ int8_t cli_proc(char *buf, void *ptr)
 				uint8_t pwm = atoi(val);
 				set_gauge(pwm);
 			}
-			return 0;
-		}
-		return CLI_EARG;
+		} else if (str_is(arg, PSTR("contrast"))) {
+			uint8_t contrast = atoi(val);
+			ossd_set_contrast(contrast);
+		} else
+			return CLI_EARG;
+		return 0;
 	}
 
 	if (str_is(cmd, PSTR("echo"))) {
-		if (*arg == '\0') {
-			print_status(1);
-			return 0;
-		}
-		char *on = get_arg(arg);
-		if (str_is(arg, ps_off)) {
-			flags &= ECHO_RHT | ECHO_THIST | VERBOSE_MODE;
-			return 0;
-		}
 		uint8_t set = 0;
+		char *on = get_arg(arg);
+		if (*arg == '\0')
+			goto print_stat;
+		if (str_is(arg, ps_off)) {
+			flags &= ~(ECHO_RHT | ECHO_THIST | ECHO_EXTRA | ECHO_VERBOSE);
+			goto print_stat;
+		}
 		if (str_is(arg, PSTR("rht")))
 			set = ECHO_RHT;
 		if (str_is(arg, PSTR("thist")))
 			set = ECHO_THIST;
+		if (str_is(arg, PSTR("extra")))
+			set = ECHO_EXTRA;
 		if (str_is(arg, PSTR("verbose")))
-			set = VERBOSE_MODE;
+			set = ECHO_VERBOSE;
 		if (!set)
 			return CLI_EARG;
 		if (str_is(on, ps_on))
@@ -139,6 +161,7 @@ int8_t cli_proc(char *buf, void *ptr)
 			flags &= ~set;
 		else
 			return CLI_EARG;
+print_stat:
 		print_status(1);
 		return 0;
 	}

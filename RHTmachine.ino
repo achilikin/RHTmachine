@@ -49,9 +49,10 @@ static const uint8_t led_green = 10;
 
 static const uint8_t led_rht = 13;
 
-static const uint8_t d_dbg = A0;
+static const uint8_t d_alt = A0;
 static const uint8_t d_hist_12 = A1;
 static const uint8_t disp_t = A2;
+static const uint8_t a_light = A6;
 
 #define TVAL_MIN 5
 #define TVAL_MAX 15
@@ -89,6 +90,7 @@ ticker_t tick_rht(TICK_SEC(15), rht_poll); // four polls per minute
 int8_t calibrate(void *data);
 ticker_t tick_fdd(TICK_HOUR(12), calibrate);
 
+uint8_t light;
 RhtClient rht(d_data, 1);
 AnalogueGauge gauge(d_gauge, hmap, sizeof(hmap)/sizeof(hmap[0]));
 
@@ -110,9 +112,16 @@ uint8_t flags;
 uint8_t t6idx;  // last 6 min index
 uint8_t t6[24]; // last 6 min of temp
 uint8_t h6[24]; // last 6 min of humidity
+uint8_t l6[24]; // last 6 min of light
+
+uint8_t trange[2] = {  0, FDD_RANGE };
+uint8_t hrange[2] = {  0, 255 };
+uint8_t lrange[2] = { 30, 90 };
+
 uint8_t tdidx;
 uint8_t tday[HIST_SIZE]; // last 12 (default) or 24 hour history
 uint8_t hday[HIST_SIZE];
+uint8_t lday[HIST_SIZE];
 
 // setup all global variables
 void setup()
@@ -121,16 +130,23 @@ void setup()
 	led.on();
 
 	serial_init(UART_BAUD_RATE);
+	puts_P(ps_version);
+	puts_P(ps_verstr);
+
 	// configuration pins
-	pinMode(d_dbg, INPUT_PULLUP);
+	pinMode(d_alt, INPUT_PULLUP);
 	pinMode(disp_t, INPUT_PULLUP);
 	pinMode(d_hist_12, INPUT_PULLUP);
 	pinMode(d_attached, INPUT_PULLUP);
+	analogRead(a_light);
 
 	uptime = 0;
 	pins = flags = 0;
 	if (digitalRead(d_attached) == LOW)
 		pins |= CD_ATTACHED;
+	if (digitalRead(d_hist_12) == LOW)
+		pins |= HIST_24H;
+
 	printf_P(PSTR("Starting at %luHz"), F_CPU);
 	if (!(pins & CD_ATTACHED))
 		printf_P(PSTR(" in standalone mode"));
@@ -179,7 +195,7 @@ void setup()
 // main loop, never returns
 void loop()
 {
-	uint8_t disp = ~(pins & DISP_RH);
+	uint8_t disp = ~(pins & DISP_ALT);
 	if (pins & CD_ATTACHED) {
 		// seek to 0
 		fdd.init();
@@ -193,15 +209,14 @@ void loop()
 	tick_sec.tick(tms, NULL);
 	uptime = tms / 1000l;
 	while(true) {
-		if (!digitalRead(d_dbg))
-			pins |= DBG_PIN;
-		if (!digitalRead(d_hist_12))
-			pins |= HIST_24H;
+		// pullup inputs
+		if (!digitalRead(d_alt))
+			pins |= ALT_PIN;
 		if (!digitalRead(disp_t))
-			pins |= DISP_RH;
-		if (disp ^ (pins & DISP_RH)) {
+			pins |= DISP_ALT;
+		if (disp ^ (pins & DISP_ALT)) {
 			disp_hist();
-			disp = pins & DISP_RH;
+			disp = pins & DISP_ALT;
 		}
 		cli_interact(cli_proc, NULL);
 		tms = millis();
@@ -211,27 +226,27 @@ void loop()
 			tick_fdd.tick(tms, &rht);
 		}
 		tick_sec.tick(tms, NULL);
-		pins &= ~(HIST_24H | DISP_RH | DBG_PIN);
+		pins &= ~(DISP_ALT | ALT_PIN);
 		delay(10);
 	}
 }
 
 int8_t rht_poll(void *data)
 {
-	int8_t ok = 0;
+	int8_t error = 0;
 	char disp[24];
 	static uint8_t tick = 0;
-	const uint8_t verbose = flags & VERBOSE_MODE;
+	const uint8_t verbose = flags & ECHO_VERBOSE;
 	const uint8_t attached = pins & CD_ATTACHED;
 	RhtClient *prht = (RhtClient *)data;
 
 	if (verbose)
-		print_time(uptime);
+		print_time(uptime, 0);
 	led.on();
 	if (attached)
-		ok = prht->poll(flags & ECHO_RHT);
+		error = prht->poll(flags & ECHO_RHT);
 	led.off();
-	if (ok == 0) {
+	if (!error) {
 		if (!(flags & HIST_INIT)) {
 			for(uint8_t i = 0; i < TAVR_LEN; i++)
 				tavr[i] = prht->get_temp();
@@ -239,23 +254,24 @@ int8_t rht_poll(void *data)
 		}
 	}
 	else if (verbose)
-		printf_P(PSTR("Error %d, "), ok);
+		printf_P(PSTR("Error %d, "), error);
 
-	uint8_t hdec;
-	uint8_t hval = prht->get_humidity(&hdec);
-	uint8_t tdec;
-	int8_t  tval = prht->get_temp(&tdec);
-	sprintf(disp, "h %u.%u t %d.%u", hval, hdec, tval, tdec);
+	get_rht_data(disp);
 	if (attached)
 		ossd_putlx(0, -1, disp, TEXT_UNDERLINE);
+
+	light = uint8_t(analogRead(a_light) >> 2);
+	if (light < lrange[0]) // too low? try again
+		light = uint8_t(analogRead(a_light) >> 2);
 	if (verbose)
-		printf("%s\n", disp);
+		printf_P(PSTR("%s L %u\n"), disp, light);
 
 	// store to history
 	uint8_t fpos = fdd.set(prht->get_temp());
 	uint8_t gpos = gauge.set(prht->get_humidity());
 	t6[t6idx] = fpos;
 	h6[t6idx] = gpos;
+	l6[t6idx] = light;
 	// for 24 hour mode store only every second reading
 	tick++;
 	if (pins & HIST_24H)
@@ -266,15 +282,20 @@ int8_t rht_poll(void *data)
 		t6idx = 0;
 		uint16_t tavr = 0;
 		uint16_t havr = 0;
+		uint16_t lavr = 0;
 		for (uint8_t i = 0; i < 24; i++) {
 			tavr += t6[i];
 			havr += h6[i];
+			lavr += l6[i];
 		}
 		tdidx = (tdidx + 1) % HIST_SIZE;
 		tday[tdidx] = tavr / 24;
 		hday[tdidx] = havr / 24;
+		lday[tdidx] = lavr / 24;
 		if (attached)
 			disp_hist();
+		if (verbose)
+			print_hist(1, 0);
 	}
 
 	// store for averaging
@@ -282,7 +303,7 @@ int8_t rht_poll(void *data)
 	tidx = tidx % TAVR_LEN;
 
 	// get temperature gradient
-	const char *tdir[3] = { PSTR(" (falling)"), PSTR(" (stable)"), PSTR(" (rising)") };
+	static const char *tdir[3] = { PSTR(" (falling)"), PSTR(" (stable)"), PSTR(" (rising)") };
 	int8_t tgrad = get_tavr(0.25, flags & ECHO_THIST);
 	tgrad += 1; // translate -1, 0, 1 to 0,1,2
 	if (rgb_led != tgrad) {
@@ -292,7 +313,7 @@ int8_t rht_poll(void *data)
 	analogWrite(rgb[rgb_led], rgb_val);
 	if (flags & ECHO_THIST)
 		puts_P(tdir[rgb_led]);
-	return ok;
+	return error;
 }
 
 int8_t calibrate(void *data)
@@ -303,7 +324,7 @@ int8_t calibrate(void *data)
 	// do the first calibration after 12 hours
 	// and then every 24 hours
 	if (++count & 0x01) {
-		print_time(uptime);
+		print_time(uptime, 1);
 		puts_P(PSTR("calibrating"));
 		fdd.init();
 		fdd.set(prht->get_temp());
@@ -331,8 +352,11 @@ int8_t get_tavr(double delta, uint8_t dbg)
 		}
 	}
 	val[0] = val[0]/(TAVR_LEN/2);
-	if (dbg)
-		Serial.println(val[0]);
+	if (dbg) {
+		Serial.print("(");
+		Serial.print(val[0]);
+		Serial.println(")");
+	}
 
 	// accumulate temperature for the second half of the history
 	// (TAVR_LEN/2 to the current time)
@@ -393,7 +417,7 @@ static void set_bar(uint8_t *bar, uint8_t val, uint8_t range)
 {
 	uint8_t n, nbits = uint8_t(48.*(float(val)/(float(range))));
 
-	if (val && (flags & ECHO_THIST))
+	if (val && (flags & ECHO_EXTRA))
 		printf_P(PSTR("set_bar %u %u:"), val, nbits);
 
 	for (n = 0; nbits > 8; n++, nbits -= 8)
@@ -405,30 +429,37 @@ static void set_bar(uint8_t *bar, uint8_t val, uint8_t range)
 			bar[n] = 0;
 	}
 
-	if (val && (flags & ECHO_THIST)) {
+	if (val && (flags & ECHO_EXTRA)) {
 		for (n = 0; n < 6; n++)
 			printf(" %02X", bar[n]);
 		printf("\n");
 	}
 }
 
+static inline uint8_t normilize(uint8_t val, const uint8_t *range)
+{
+	val = constrain(val, range[0], range[1]);
+	return val - range[0];
+}
+
 void disp_hist(void)
 {
-	uint8_t hum = pins & DISP_RH;
+	uint8_t mode = get_disp_mode();
+	static const char *disp[3] = { PSTR("Temp C"), PSTR("Humid%"), PSTR("Light%") };
+	static const uint8_t *dhist[3] = { tday, hday, lday };
+	static const uint8_t *drange[3] = { trange, hrange, lrange };
+
 	bmfont_select(BMFONT_8x8);
-	ossd_putcx(2, 0, hum ? 'h' : 't', 0);
-	ossd_putcx(3, 0, hum ? 'u' : 'e', 0);
-	ossd_putcx(4, 0, 'm', 0);
-	ossd_putcx(5, 0, hum ? 'i' : 'p', 0);
-	ossd_putcx(6, 0, hum ? 'd' : ' ', 0);
-	ossd_putcx(7, 0, hum ? '%' : 'C', 0);
+	for (uint8_t i = 0; i < 6; i++)
+		ossd_putcx(2 + i, 0, pgm_read_byte(disp[mode] + i), 0);
 	bmfont_select(BMFONT_8x16);
 
 	uint8_t bar[6];
-	uint8_t *day = hum ? hday : tday;
-	uint8_t range = hum ? 255 : FDD_RANGE;
+	uint8_t range = drange[mode][1] - drange[mode][0];
+	const uint8_t *day = dhist[mode];
 	for (uint8_t idx = tdidx, i = 0; i < HIST_SIZE; i++) {
-		set_bar(bar, day[idx], range);
+		uint8_t val = normilize(day[idx], drange[mode]);
+		set_bar(bar, val, range);
 		for (uint8_t n = 0; n < 6; n++) {
 			ossd_goto(2 + n, 127 - i);
 			ossd_write(bar[5 - n]);
@@ -440,17 +471,36 @@ void disp_hist(void)
 	}
 }
 
-void print_hist(void)
+void print_time(uint32_t sec, uint8_t day)
 {
-	printf_P(PSTR("  T   H \n"));
-	for (uint8_t idx = tdidx, i = 0; i < HIST_SIZE; i++) {
+	uint32_t d = (sec / 86400l);
+	uint8_t  h = (sec / 3600l) % 24;
+	uint8_t  m = (sec / 60) % 60;
+	uint8_t  s = sec % 60;
+	if (day && d)
+		printf_P(PSTR("%lu days "), d);
+	printf_P(PSTR("%02u:%02u:%02u "), h, m, s);
+}
+
+void print_hist(uint8_t nrec, uint8_t header)
+{
+	uint32_t time = 0;
+	uint32_t span = 360;
+	if (pins & HIST_24H)
+		span *= 2;
+	if (!nrec || (nrec > HIST_SIZE))
+		nrec = HIST_SIZE;
+	if (header)
+		printf_P(PSTR("             T    H  L\n"));
+	for (uint8_t idx = tdidx, i = 0; i < nrec; i++) {
 		if (hday[idx] == 0) // 0 is invalid, so we can use it as end-of-list
 			break;
-
 		uint8_t tdec, hdec;
 		uint8_t tval = fdd.get(tday[idx], &tdec);
 		uint8_t hval = gauge.get(hday[idx], &hdec);
-		printf(" %2u.%u %2u.%u\n", tval, tdec, hval, hdec);
+		print_time(time, 0);
+		printf_P(PSTR(" %2u.%u %2u.%u %u\n"), tval, tdec, hval, hdec, lday[idx]);
+		time += span;
 		if (idx > 0)
 			idx--;
 		else
@@ -458,18 +508,15 @@ void print_hist(void)
 	}
 }
 
-void print_time(uint32_t sec)
-{
-	uint32_t d = (sec / 86400l);
-	uint8_t  h = (sec / 3600l) % 24;
-	uint8_t  m = (sec / 60) % 60;
-	uint8_t  s = sec % 60;
-	if (d)
-		printf_P(PSTR("%lu days "), d);
-	printf_P(PSTR("%02u:%02u:%02u "), h, m, s);
-}
-
 void set_gauge(uint8_t pwm)
 {
 	gauge.set(pwm);
+}
+
+void get_rht_data(char *buf)
+{
+	uint8_t tdec, hdec;
+	int8_t  tval = rht.get_temp(&tdec);
+	uint8_t hval = rht.get_humidity(&hdec);
+	sprintf_P(buf, PSTR("T %u.%u H %d.%u"), tval, tdec, hval, hdec);
 }

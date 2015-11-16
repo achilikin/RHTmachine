@@ -354,7 +354,7 @@ int8_t ossd_init(uint8_t orientation)
 	ossd_cmd(OSSD_SET_SEG_REMAP | (orientation & OSSD_SEG_REMAP_R2L));
 	ossd_cmd(OSSD_SET_COM_DIR | (orientation & OSSD_COM_DIR_UPDOWN));
 	ossd_cmd_arg(OSSD_SET_COM_CONFIG, OSSD_COM_ALT);
-	ossd_cmd_arg(OSSD_SET_CONTRAST, 0x7F);
+	ossd_cmd_arg(OSSD_SET_CONTRAST, 64);
 	ossd_cmd(OSSD_SET_OUTPUT_RAM);
 	ossd_cmd_arg(OSSD_SET_DISP_CLOCK, 0x80);
 	ossd_cmd_arg(OSSD_SET_PRECHARGE, 0x22);

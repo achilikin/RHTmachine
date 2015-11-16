@@ -115,25 +115,23 @@ int8_t RhtClient::poll(uint8_t dbg)
 
 	// validate checksum
 	if (pdata[4] == uint8_t(pdata[0] + pdata[1] + pdata[2] + pdata[3])) {
-		data[0] = pdata[0];
-		data[1] = pdata[1];
-		data[2] = pdata[2];
-		data[3] = pdata[3];
-		data[4] = pdata[4];
-		
 		int16_t val;
-		val = (int16_t)(data[2] & 0x7F);
+		// convert to humidity
+		val = pdata[0];
 		val <<= 8;
-		val |= data[3];
-		if (data[2] & 0x80)
+		val |= pdata[1];
+		if (val == 0) // treat 0% as an error
+			return -5;
+		rh = val / 10.0;
+
+		val = (int16_t)(pdata[2] & 0x7F);
+		val <<= 8;
+		val |= pdata[3];
+		if (pdata[2] & 0x80)
 			val *= -1;
 		t = val/10.0;
-		
-		val = data[0];
-		val <<= 8;
-		val |= data[1];
-		rh = val/10.0;
 
+		memcpy(data, pdata, 5);
 		return 0;
 	}
 
