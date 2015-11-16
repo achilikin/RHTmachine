@@ -1,6 +1,8 @@
 # RHTmachine
 Wild combination of a floppy disk drive control board, a CD frame with step motor, an analogue gauge and a lot of other bits (including a toothpick) to monitor temperature, relative humidity and light. Can be driven by any microcontroller with digital/analogue inputs: Arduino, Galileo, Edison. Source code in this repo is for Arduino Nano clone.
 
+Requires couple of files from my [YAHL](https://github.com/achilikin/Galileo/tree/master/YAHL) library
+
 ![RHTmachine](https://rawgithub.com/achilikin/RHTmachine/master/files/rht-machine.svg)
 
 Commands available via serial port (38400 baud):
