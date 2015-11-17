@@ -42,8 +42,9 @@ static const char ps_help[] PROGMEM =
 static const char ps_on[] PROGMEM = "on";
 static const char ps_off[] PROGMEM = "off";
 static const char ps_config[] PROGMEM = "config";
+const char ps_sensors[] PROGMEM = "%s L %u\n";
 const char ps_version[] PROGMEM = "version";
-const char ps_verstr[] PROGMEM = "2015-11-16, 20,402/1339 (66/65%) bytes";
+const char ps_verstr[] PROGMEM = "2015-11-16, 20,394/1339 (66/65%) bytes";
 
 const char *is_on(uint8_t bit)
 {
@@ -114,7 +115,7 @@ int8_t cli_proc(char *buf, void *ptr)
 		else if (str_is(arg, PSTR("now"))) {
 			char buf[24];
 			get_rht_data(buf);
-			printf_P(PSTR("%s %u\n"), buf, light);
+			printf_P(ps_sensors, buf, light);
 		}
 		else
 			return CLI_EARG;

@@ -264,7 +264,7 @@ int8_t rht_poll(void *data)
 	if (light < lrange[0]) // too low? try again
 		light = uint8_t(analogRead(a_light) >> 2);
 	if (verbose)
-		printf_P(PSTR("%s L %u\n"), disp, light);
+		printf_P(ps_sensors, disp, light);
 
 	// store to history
 	uint8_t fpos = fdd.set(prht->get_temp());

@@ -30,6 +30,7 @@ extern uint32_t uptime;
 extern uint8_t light;
 extern const char ps_version[];
 extern const char ps_verstr[];
+extern const char ps_sensors[];
 
 void disp_hist(void);
 void print_hist(uint8_t nrec, uint8_t header);
