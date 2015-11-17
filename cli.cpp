@@ -114,7 +114,7 @@ int8_t cli_proc(char *buf, void *ptr)
 		else if (str_is(arg, PSTR("now"))) {
 			char buf[24];
 			get_rht_data(buf);
-			printf_P(PSTR("%s %u\n"), light);
+			printf_P(PSTR("%s %u\n"), buf, light);
 		}
 		else
 			return CLI_EARG;

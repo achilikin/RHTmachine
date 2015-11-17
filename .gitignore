@@ -201,3 +201,4 @@ __vm/
 *.vcxproj
 *.filters
 *.xlsx
+*.log
