@@ -102,14 +102,15 @@
 #define OSSD_CHARGE_PUMP_ON  0x14
 #define OSSD_CHARGE_PUMP_OFF 0x10
 
+#define I2C_TIMEOUT 200
 static uint8_t _mode;
 
 #if (OSSD_TARGET == OSSD_AVR)
-
 static int8_t ossd_send_byte(uint8_t dc, uint8_t data)
 {
-	if (i2c_start(I2C_OSSD | I2C_WRITE) != 0)
+	if (i2c_start_ex(I2C_OSSD | I2C_WRITE, I2C_TIMEOUT))
 		return -1;
+
 	i2c_write(dc);
 	i2c_write(data);
 	i2c_stop();
@@ -118,7 +119,7 @@ static int8_t ossd_send_byte(uint8_t dc, uint8_t data)
 
 static int8_t ossd_cmd_arg(uint8_t cmd, uint8_t arg)
 {
-	if (i2c_start(I2C_OSSD | I2C_WRITE) != 0)
+	if (i2c_start_ex(I2C_OSSD | I2C_WRITE, I2C_TIMEOUT))
 		return -1;
 	i2c_write(OSSD_CMD);
 	i2c_write(cmd);
@@ -129,7 +130,8 @@ static int8_t ossd_cmd_arg(uint8_t cmd, uint8_t arg)
 
 static void ossd_cmd_arg2(uint8_t cmd, uint8_t arg1, uint8_t arg2)
 {
-	i2c_start(I2C_OSSD | I2C_WRITE);
+	if (i2c_start_ex(I2C_OSSD | I2C_WRITE, I2C_TIMEOUT))
+		return;
 	i2c_write(OSSD_CMD);
 	i2c_write(cmd);
 	i2c_write(arg1);
@@ -139,7 +141,8 @@ static void ossd_cmd_arg2(uint8_t cmd, uint8_t arg1, uint8_t arg2)
 
 static void ossd_fill_line(uint8_t data, uint8_t num)
 {
-	i2c_start(I2C_OSSD | I2C_WRITE);
+	if (i2c_start_ex(I2C_OSSD | I2C_WRITE, I2C_TIMEOUT))
+		return;
 	i2c_write(OSSD_DATA);
 	for(uint8_t i = 0; i < num; i++)
 		i2c_write(data);

@@ -123,10 +123,20 @@ extern void i2c_stop(void);
  */
 extern unsigned char i2c_start(unsigned char addr);
 
+/** 
+ @brief Issues a start condition and sends address and transfer direction
+  
+ @param    addr address and transfer direction of I2C device
+ @retval   0   device accessible 
+ @retval   1   failed to access device 
+ */
+extern unsigned char i2c_start_ex(unsigned char address, uint8_t timeout);
 
 /**
- @brief Issues a repeated start condition and sends address and transfer direction 
-
+ @brief   Issues a repeated start condition and sends address and transfer
+          direction. Uses 'timeout' as loop counter to detect timeouts.
+		  At 16MHz it count to ~52 for transmission.
+        
  @param   addr address and transfer direction of I2C device
  @retval  0 device accessible
  @retval  1 failed to access device

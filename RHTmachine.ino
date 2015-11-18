@@ -148,19 +148,21 @@ void setup()
 		pins |= HIST_24H;
 
 	printf_P(PSTR("Starting at %luHz"), F_CPU);
+	i2c_init();
+	delay(2);
+
 	if (!(pins & CD_ATTACHED))
 		printf_P(PSTR(" in standalone mode"));
+	else {
+		if (ossd_init(OSSD_NORMAL) == 0) {
+			bmfont_select(BMFONT_8x8);
+			ossd_putlx(0, -1, "RHT Machine", 0);
+			bmfont_select(BMFONT_8x16);
+		}
+	}
 	printf("\n");
 	printf_P(PSTR("Timers: rht %lu, led %lu fdd %lu\n"),
 		tick_rht.get_interval(), tick_led.get_interval(), tick_fdd.get_interval());
-
-	i2c_init();
-	delay(2);
-	if (ossd_init(OSSD_NORMAL) == 0) {
-		bmfont_select(BMFONT_8x8);
-		ossd_putlx(0, -1, "RHT Machine", 0);
-		bmfont_select(BMFONT_8x16);
-	}
 
 	rht.begin();
 	fdd.begin(18.5, 25.25);
@@ -208,6 +210,7 @@ void loop()
 	uint32_t tms = millis();
 	tick_sec.tick(tms, NULL);
 	uptime = tms / 1000l;
+
 	while(true) {
 		// pullup inputs
 		if (!digitalRead(d_alt))
@@ -246,6 +249,7 @@ int8_t rht_poll(void *data)
 	if (attached)
 		error = prht->poll(flags & ECHO_RHT);
 	led.off();
+
 	if (!error) {
 		if (!(flags & HIST_INIT)) {
 			for(uint8_t i = 0; i < TAVR_LEN; i++)
@@ -292,8 +296,7 @@ int8_t rht_poll(void *data)
 		tday[tdidx] = tavr / 24;
 		hday[tdidx] = havr / 24;
 		lday[tdidx] = lavr / 24;
-		if (attached)
-			disp_hist();
+		disp_hist();
 		if (verbose)
 			print_hist(1, 0);
 	}
@@ -313,6 +316,7 @@ int8_t rht_poll(void *data)
 	analogWrite(rgb[rgb_led], rgb_val);
 	if (flags & ECHO_THIST)
 		puts_P(tdir[rgb_led]);
+
 	return error;
 }
 
@@ -444,6 +448,8 @@ static inline uint8_t normilize(uint8_t val, const uint8_t *range)
 
 void disp_hist(void)
 {
+	if (!(pins & CD_ATTACHED))
+		return;
 	uint8_t mode = get_disp_mode();
 	static const char *disp[3] = { PSTR("Temp C"), PSTR("Humid%"), PSTR("Light%") };
 	static const uint8_t *dhist[3] = { tday, hday, lday };
