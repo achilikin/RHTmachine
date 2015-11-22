@@ -100,7 +100,7 @@ FddController fdd(d_dir, d_eot, d_step, FDD_RANGE);
 
 // temperature for averaging
 #define TAVR_LEN 40
-uint32_t tidx;
+uint32_t tavridx;
 float tavr[TAVR_LEN];
 static int8_t get_tavr(float delta, uint8_t dbg);
 
@@ -175,12 +175,13 @@ void setup()
 	fdd.begin(18.5, 25.25);
 	gauge.begin(0.0, 100.0);
 
-	tidx = 0;
 	t6idx = 0;
 	tdidx = 0;
+	tavridx = 0;
 	for (uint8_t i = 0; i < 120; i++) {
 		tday[i] = 0;
 		hday[i] = 0;
+		lday[i] = 0;
 	}
 
 	// PWM outputs for RGB LED
@@ -309,8 +310,8 @@ int8_t rht_poll(void)
 	}
 
 	// store for averaging
-	tavr[tidx++] = rht.get_temp();
-	tidx = tidx % TAVR_LEN;
+	tavr[tavridx++] = rht.get_temp();
+	tavridx = tavridx % TAVR_LEN;
 
 	// get temperature gradient
 	static const char *tdir[3] = { PSTR(" (falling)"), PSTR(" (stable)"), PSTR(" (rising)") };
@@ -354,7 +355,7 @@ int8_t get_tavr(double delta, uint8_t dbg)
 	// (current time - TAVR_LEN/2)
 	val[0] = 0.0;
 	for(uint8_t i = 0; i < TAVR_LEN/2; i++) {
-		uint8_t idx = (tidx + i) % TAVR_LEN;
+		uint8_t idx = (tavridx + i) % TAVR_LEN;
 		val[0] += tavr[idx];
 		if (dbg) {
 			Serial.print(tavr[idx]);
@@ -372,7 +373,7 @@ int8_t get_tavr(double delta, uint8_t dbg)
 	// (TAVR_LEN/2 to the current time)
 	val[1] = 0.0;
 	for(uint8_t i = TAVR_LEN/2; i < TAVR_LEN; i++) {
-		uint8_t idx = (tidx + i) % TAVR_LEN;
+		uint8_t idx = (tavridx + i) % TAVR_LEN;
 		val[1] += tavr[idx];
 		if (dbg) {
 			Serial.print(tavr[idx]);

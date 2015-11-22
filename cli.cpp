@@ -48,7 +48,7 @@ static const char ps_config[] PROGMEM = "config";
 const char ps_version[] PROGMEM = "version";
 const char ps_sensors[] PROGMEM = "%s L %u\n";
 const char ps_time[] PROGMEM = "%02u:%02u:%02u ";
-const char ps_verstr[] PROGMEM = "2015-11-22, 22,266/1339 (72/65%) bytes";
+const char ps_verstr[] PROGMEM = "2015-11-22, 22,280/1339 (73/65%) bytes";
 
 static int8_t set_rtc_time(char *str);
 
