@@ -1,6 +1,6 @@
 /*************************************************************************
 * Title:    I2C master library using hardware TWI interface
-* Author:   Peter Fleury <pfleury@gmx.ch>  http://jump.to/fleury
+* Author:   Peter Fleury <pfleury@gmx.ch> http://tinyurl.com/peterfleury
 * File:     $Id: twimaster.c,v 1.3 2005/07/02 11:14:21 Peter Exp $
 * Software: AVR-GCC 3.4.3 / avr-libc 1.2.3
 * Target:   any AVR device with hardware TWI 
