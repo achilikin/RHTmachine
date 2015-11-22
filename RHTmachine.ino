@@ -27,6 +27,7 @@
 #include "main.h"
 #include "gauge.h"
 #include "bmfont.h"
+#include "ds3231.h"
 #include "serial.h"
 #include "ossd_i2c.h"
 #include "i2cmaster.h"
@@ -38,7 +39,7 @@ static const uint8_t d_attached = 12;
 static const uint8_t d_dir  = 4;
 static const uint8_t d_eot  = 6;
 static const uint8_t d_step = 2;
-static const uint8_t trigger = 7;
+static const uint8_t d_trigger = 7; // connected to a pull down npn
 
 static const uint8_t d_data = 3;
 static const uint8_t d_gauge = 5;
@@ -52,7 +53,7 @@ static const uint8_t led_rht = 13;
 static const uint8_t d_alt = A0;
 static const uint8_t d_hist_12 = A1;
 static const uint8_t disp_t = A2;
-static const uint8_t a_light = A6;
+static const uint8_t a_light = A7;
 
 #define TVAL_MIN 5
 #define TVAL_MAX 15
@@ -78,20 +79,20 @@ static const uint8_t hmap[] = {
 	100, 253
 };
 
-int8_t led_dimmer(void *data);
+static int8_t led_dimmer(void *data);
 ticker_t tick_led(50, led_dimmer);
 
-int8_t second(void *data);
+static int8_t second(void *data);
 ticker_t tick_sec(TICK_SEC(1), second); // 1 second ticker
 
-int8_t rht_poll(void *data);
-ticker_t tick_rht(TICK_SEC(15), rht_poll); // four polls per minute
-
-int8_t calibrate(void *data);
+static int8_t calibrate(void *data);
 ticker_t tick_fdd(TICK_HOUR(12), calibrate);
 
+// four polls per minute
+static int8_t rht_poll(void);
+
 uint8_t light;
-RhtClient rht(d_data, 1);
+RhtClient rht(d_data, 2);
 AnalogueGauge gauge(d_gauge, hmap, sizeof(hmap)/sizeof(hmap[0]));
 
 #define FDD_RANGE 135 // number of steps for temperature needle
@@ -101,10 +102,13 @@ FddController fdd(d_dir, d_eot, d_step, FDD_RANGE);
 #define TAVR_LEN 40
 uint32_t tidx;
 float tavr[TAVR_LEN];
-
 static int8_t get_tavr(float delta, uint8_t dbg);
 
-uint32_t uptime;
+uint32_t htime;   // last write to history
+uint32_t uptime; 
+uint32_t rtctime; // real-time clock time (if DS3231 is connected)
+
+static int8_t rtc_sync(void);
 
 uint8_t pins;
 uint8_t flags;
@@ -116,7 +120,7 @@ uint8_t l6[24]; // last 6 min of light
 
 uint8_t trange[2] = {  0, FDD_RANGE };
 uint8_t hrange[2] = {  0, 255 };
-uint8_t lrange[2] = { 30, 90 };
+uint8_t lrange[2] = {  0, 127 };
 
 uint8_t tdidx;
 uint8_t tday[HIST_SIZE]; // last 12 (default) or 24 hour history
@@ -140,7 +144,9 @@ void setup()
 	pinMode(d_attached, INPUT_PULLUP);
 	analogRead(a_light);
 
+	htime = 0;
 	uptime = 0;
+	rtctime = 0;
 	pins = flags = 0;
 	if (digitalRead(d_attached) == LOW)
 		pins |= CD_ATTACHED;
@@ -150,6 +156,7 @@ void setup()
 	printf_P(PSTR("Starting at %luHz"), F_CPU);
 	i2c_init();
 	delay(2);
+	rtc_sync();
 
 	if (!(pins & CD_ATTACHED))
 		printf_P(PSTR(" in standalone mode"));
@@ -161,8 +168,8 @@ void setup()
 		}
 	}
 	printf("\n");
-	printf_P(PSTR("Timers: rht %lu, led %lu fdd %lu\n"),
-		tick_rht.get_interval(), tick_led.get_interval(), tick_fdd.get_interval());
+	printf_P(PSTR("Timers: led %lu fdd %lu\n"),
+		tick_led.get_interval(), tick_fdd.get_interval());
 
 	rht.begin();
 	fdd.begin(18.5, 25.25);
@@ -181,12 +188,11 @@ void setup()
 	pinMode(led_green, OUTPUT);
 	pinMode(led_blue, OUTPUT);
 	// trigger output
-	pinMode(trigger, OUTPUT);
+	set_trigger(0);
 	// default values
 	digitalWrite(led_red, LOW);
 	digitalWrite(led_green, LOW);
 	digitalWrite(led_blue, LOW);
-	digitalWrite(trigger, LOW);
 
 	// initialize console and print command prompt
 	print_status(0);
@@ -204,7 +210,7 @@ void loop()
 		// set 20 C for scale calibration
 		fdd.set(20.0);
 		delay(2000);
-		rht_poll(&rht);
+		rht_poll();
 	}
 
 	uint32_t tms = millis();
@@ -224,36 +230,36 @@ void loop()
 		cli_interact(cli_proc, NULL);
 		tms = millis();
 		tick_led.tick(tms, NULL);
-		if (!(flags & CONFIG_MODE)) {
-			tick_rht.tick(tms, &rht);
-			tick_fdd.tick(tms, &rht);
+		if (tick_sec.tick(tms, NULL)) {
+			if (!(flags & CONFIG_MODE) && !(rtctime % 15l))
+				rht_poll();
 		}
-		tick_sec.tick(tms, NULL);
+		if (!(flags & CONFIG_MODE))
+			tick_fdd.tick(tms, NULL);
 		pins &= ~(DISP_ALT | ALT_PIN);
 		delay(10);
 	}
 }
 
-int8_t rht_poll(void *data)
+int8_t rht_poll(void)
 {
 	int8_t error = 0;
 	char disp[24];
 	static uint8_t tick = 0;
 	const uint8_t verbose = flags & ECHO_VERBOSE;
 	const uint8_t attached = pins & CD_ATTACHED;
-	RhtClient *prht = (RhtClient *)data;
 
 	if (verbose)
-		print_time(uptime, 0);
+		print_time(rtctime, 0);
 	led.on();
 	if (attached)
-		error = prht->poll(flags & ECHO_RHT);
+		error = rht.poll(flags & ECHO_RHT);
 	led.off();
 
 	if (!error) {
 		if (!(flags & HIST_INIT)) {
 			for(uint8_t i = 0; i < TAVR_LEN; i++)
-				tavr[i] = prht->get_temp();
+				tavr[i] = rht.get_temp();
 			flags |= HIST_INIT;
 		}
 	}
@@ -271,8 +277,8 @@ int8_t rht_poll(void *data)
 		printf_P(ps_sensors, disp, light);
 
 	// store to history
-	uint8_t fpos = fdd.set(prht->get_temp());
-	uint8_t gpos = gauge.set(prht->get_humidity());
+	uint8_t fpos = fdd.set(rht.get_temp());
+	uint8_t gpos = gauge.set(rht.get_humidity());
 	t6[t6idx] = fpos;
 	h6[t6idx] = gpos;
 	l6[t6idx] = light;
@@ -284,6 +290,7 @@ int8_t rht_poll(void *data)
 		t6idx++;
 	if (t6idx == 24) {
 		t6idx = 0;
+		htime = rtctime;
 		uint16_t tavr = 0;
 		uint16_t havr = 0;
 		uint16_t lavr = 0;
@@ -302,7 +309,7 @@ int8_t rht_poll(void *data)
 	}
 
 	// store for averaging
-	tavr[tidx++] = prht->get_temp();
+	tavr[tidx++] = rht.get_temp();
 	tidx = tidx % TAVR_LEN;
 
 	// get temperature gradient
@@ -322,16 +329,15 @@ int8_t rht_poll(void *data)
 
 int8_t calibrate(void *data)
 {
-	RhtClient *prht = (RhtClient *)data;
 	static uint8_t count = 0;
 
 	// do the first calibration after 12 hours
 	// and then every 24 hours
 	if (++count & 0x01) {
-		print_time(uptime, 1);
+		print_time(rtctime, 0);
 		puts_P(PSTR("calibrating"));
 		fdd.init();
-		fdd.set(prht->get_temp());
+		fdd.set(rht.get_temp());
 	}
 
 	return 0;
@@ -394,7 +400,7 @@ int8_t get_tavr(double delta, uint8_t dbg)
 // RGB pulse for temperature gradient:
 //  green - temperature stable
 //  blue  - temperature falling
-//  red   - temperature raising
+//  red   - temperature rising
 int8_t led_dimmer(void *data)
 {
 	static int8_t dir = 1;
@@ -412,8 +418,23 @@ int8_t led_dimmer(void *data)
 // one second timer to track uptime
 int8_t second(void *data)
 {
+	rtctime++;
 	uptime++;
-	return 0;
+	if (!(uptime % 60l))
+		rtc_sync();
+#if 0
+	uint8_t h, m, s;
+	uint8_t Y, M, D;
+	int8_t  tval;
+	uint8_t tdec;
+	if (ds3231_get_time(&h, &m, &s) == 0) {
+		ds3231_get_date(&Y, &M, &D);
+		ds3231_get_temperature(&tval, &tdec);
+		uint8_t l = (analogRead(a_light) >> 2);
+		printf_P(PSTR("%u/%02u/%02u %02u:%02u:%02u %3u %d.%u\n"),
+			Y, M, D, h, m, s, l, tval, tdec);
+#endif
+	return 1;
 }
 
 // calculate 48 bar graph for display
@@ -479,25 +500,25 @@ void disp_hist(void)
 
 void print_time(uint32_t sec, uint8_t day)
 {
-	uint32_t d = (sec / 86400l);
-	uint8_t  h = (sec / 3600l) % 24;
+	uint32_t d = (sec / SEC_DAY);
+	uint8_t  h = (sec / SEC_HOUR) % 24;
 	uint8_t  m = (sec / 60) % 60;
 	uint8_t  s = sec % 60;
 	if (day && d)
 		printf_P(PSTR("%lu days "), d);
-	printf_P(PSTR("%02u:%02u:%02u "), h, m, s);
+	printf_P(ps_time, h, m, s);
 }
 
 void print_hist(uint8_t nrec, uint8_t header)
 {
-	uint32_t time = 0;
-	uint32_t span = 360;
+	int32_t time = htime;
+	int32_t span = 360l;
 	if (pins & HIST_24H)
 		span *= 2;
 	if (!nrec || (nrec > HIST_SIZE))
 		nrec = HIST_SIZE;
 	if (header)
-		printf_P(PSTR("             T    H  L\n"));
+		printf_P(PSTR("    Time     T    H  L\n"));
 	for (uint8_t idx = tdidx, i = 0; i < nrec; i++) {
 		if (hday[idx] == 0) // 0 is invalid, so we can use it as end-of-list
 			break;
@@ -506,7 +527,9 @@ void print_hist(uint8_t nrec, uint8_t header)
 		uint8_t hval = gauge.get(hday[idx], &hdec);
 		print_time(time, 0);
 		printf_P(PSTR(" %2u.%u %2u.%u %u\n"), tval, tdec, hval, hdec, lday[idx]);
-		time += span;
+		time -= span;
+		if (time < 0)
+			time += SEC_DAY;
 		if (idx > 0)
 			idx--;
 		else
@@ -525,4 +548,25 @@ void get_rht_data(char *buf)
 	int8_t  tval = rht.get_temp(&tdec);
 	uint8_t hval = rht.get_humidity(&hdec);
 	sprintf_P(buf, PSTR("T %u.%u H %d.%u"), tval, tdec, hval, hdec);
+}
+
+int8_t rtc_sync(void)
+{
+	uint8_t h, m, s;
+	if (ds3231_get_time(&h, &m, &s)) {
+		rtctime %= 86400l;
+		return -1;
+	}
+	rtctime = h * 3600l + m * 60l + s;
+	return 0;
+}
+
+void set_trigger(uint8_t on)
+{
+	if (on){
+		pinMode(d_trigger, OUTPUT);
+		digitalWrite(d_trigger, HIGH);
+		return;
+	}
+	pinMode(d_trigger, INPUT);
 }

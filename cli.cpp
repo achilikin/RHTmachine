@@ -24,6 +24,7 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "ds3231.h"
 #include "serial.h"
 #include "ossd_i2c.h"
 #include "serial_cli.h"
@@ -36,15 +37,20 @@ static const char ps_help[] PROGMEM =
 	"  print now\n"       // print current data
 	"  print log [n]\n"   // print data history (12/24h), n records
 	"  config on|off\n"   // turn on configuration mode
-	"  set gauge 0-255\n" // calbrate gauge in configuration mode
+	"  set gauge 0-255\n" // calibrate gauge in configuration mode
+	"  set trigger 1|0\n" // turn trigger on/off
 	"  set contrast 0-255\n"
+	"  set time hh:mm:ss\n"
 	"  echo rht|thist|extra|verbose on|off"; // debug echo on/off
 static const char ps_on[] PROGMEM = "on";
 static const char ps_off[] PROGMEM = "off";
 static const char ps_config[] PROGMEM = "config";
-const char ps_sensors[] PROGMEM = "%s L %u\n";
 const char ps_version[] PROGMEM = "version";
-const char ps_verstr[] PROGMEM = "2015-11-16, 20,394/1339 (66/65%) bytes";
+const char ps_sensors[] PROGMEM = "%s L %u\n";
+const char ps_time[] PROGMEM = "%02u:%02u:%02u ";
+const char ps_verstr[] PROGMEM = "2015-11-22, 22,266/1339 (72/65%) bytes";
+
+static int8_t set_rtc_time(char *str);
 
 const char *is_on(uint8_t bit)
 {
@@ -58,8 +64,10 @@ void print_status(uint8_t echo_only)
 	static const char *disp[3] = { PSTR("temperature"), PSTR("humidity"), PSTR("light") };
 
 	if (!echo_only) {
-		printf_P(PSTR("Uptime: "));
+		printf_P(PSTR("Uptime    : "));
 		print_time(uptime, 1);
+		printf_P(PSTR("\nRTC time  : "));
+		print_time(rtctime, 0);
 		printf_P(PSTR("\nmachine   : "));
 		printf_P((pins & CD_ATTACHED) ? PSTR("at") : PSTR("de"));
 		printf_P(PSTR("tached\n"));
@@ -78,11 +86,12 @@ void print_status(uint8_t echo_only)
 
 int8_t cli_proc(char *buf, void *ptr)
 {
-	char *arg;
+	char *arg, *val;
 	char cmd[CMD_LEN + 1];
 
 	memcpy(cmd, buf, sizeof(cmd));
 	arg = get_arg(cmd);
+	val = get_arg(arg);
 
 	if (str_is(cmd, PSTR("help"))) {
 		puts_P(ps_help);
@@ -111,8 +120,11 @@ int8_t cli_proc(char *buf, void *ptr)
 
 	if (str_is(cmd, PSTR("print"))) {
 		if (str_is(arg, PSTR("log")))
-			print_hist(atoi(arg), 1);
+			print_hist(atoi(val), 1);
 		else if (str_is(arg, PSTR("now"))) {
+			uint8_t h, m, s;
+			if (ds3231_get_time(&h, &m, &s) == 0)
+				printf_P(ps_time, h, m, s);
 			char buf[24];
 			get_rht_data(buf);
 			printf_P(ps_sensors, buf, light);
@@ -123,7 +135,6 @@ int8_t cli_proc(char *buf, void *ptr)
 	}
 
 	if (str_is(cmd, PSTR("set"))) {
-		char *val = get_arg(arg);
 		if (str_is(arg, PSTR("gauge"))) {
 			if (flags & CONFIG_MODE) {
 				uint8_t pwm = atoi(val);
@@ -132,14 +143,17 @@ int8_t cli_proc(char *buf, void *ptr)
 		} else if (str_is(arg, PSTR("contrast"))) {
 			uint8_t contrast = atoi(val);
 			ossd_set_contrast(contrast);
-		} else
+		} else if (str_is(arg, PSTR("time")))
+			return set_rtc_time(val);
+		else if (str_is(arg, PSTR("trigger")))
+			set_trigger(atoi(val));
+		else
 			return CLI_EARG;
 		return 0;
 	}
 
 	if (str_is(cmd, PSTR("echo"))) {
 		uint8_t set = 0;
-		char *on = get_arg(arg);
 		if (*arg == '\0')
 			goto print_stat;
 		if (str_is(arg, ps_off)) {
@@ -156,9 +170,9 @@ int8_t cli_proc(char *buf, void *ptr)
 			set = ECHO_VERBOSE;
 		if (!set)
 			return CLI_EARG;
-		if (str_is(on, ps_on))
+		if (str_is(val, ps_on))
 			flags |= set;
-		else if (str_is(on, ps_off))
+		else if (str_is(val, ps_off))
 			flags &= ~set;
 		else
 			return CLI_EARG;
@@ -172,4 +186,20 @@ print_stat:
 		return 0;
 	}
 	return CLI_ENOTSUP;
+}
+
+int8_t set_rtc_time(char *str)
+{
+	uint8_t h, m, s;
+	
+	h = (uint8_t)strtoul(str, &str, 10);
+	if (h > 24 || *str != ':')
+		return CLI_EARG;
+	m = (uint8_t)strtoul(++str, &str, 10);
+	if (m > 59 || *str != ':')
+		return CLI_EARG;
+	s = (uint8_t)strtoul(++str, &str, 10);
+	if (s > 59)
+		return CLI_EARG;
+	return ds3231_set_time(h, m, s);
 }

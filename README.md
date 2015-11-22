@@ -16,6 +16,8 @@ Commands available via serial port (38400 baud):
   print log [n]
   config on|off
   set gauge 0-255
+  set trigger 1|0
+  set time hh:mm:ss
   set contrast 0-255
   echo rht|thist|extra|verbose on|off
 >
@@ -27,9 +29,11 @@ Commands available via serial port (38400 baud):
 * _print log [n]_: print log for the last 12/24h (or n last records), timing from the current time
 * _config on|off_: set configuration mode, if on - disables gauge and needle updates
 * _set gauge 0-122_: used for gauge calibration, works only in config mode
+* _set trigger 0|1_: set trigger output (pull down npn) to on/off
+* _set time hh:mm:ss_: set real-time clock, 24h format 
 * _set contrast_: sets OLED display contrast, default is 64
 * _echo rht|thist|extra|verbose on|off_: sets different debug echo options
 
-Current version: ```2015-11-16, 20,402/1339 (66/65%) bytes```
+Current version: ```2015-11-22, 22,266/1339 (72/65%) bytes```
 
 # License: MIT

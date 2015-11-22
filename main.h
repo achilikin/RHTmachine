@@ -26,10 +26,15 @@ static inline uint8_t get_disp_mode(void) {
 extern uint8_t tday[];
 extern uint8_t hday[];
 
-extern uint32_t uptime;
+#define SEC_HOUR (3600l)
+#define SEC_DAY  (86400l)
+
 extern uint8_t light;
-extern const char ps_version[];
+extern uint32_t uptime;
+extern uint32_t rtctime;
+extern const char ps_time[];
 extern const char ps_verstr[];
+extern const char ps_version[];
 extern const char ps_sensors[];
 
 void disp_hist(void);
@@ -37,6 +42,7 @@ void print_hist(uint8_t nrec, uint8_t header);
 void print_time(uint32_t time, uint8_t day);
 void print_status(uint8_t echo_only);
 void set_gauge(uint8_t pwm);
+void set_trigger(uint8_t on);
 void get_rht_data(char *buf);
 
 #endif
