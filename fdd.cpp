@@ -127,7 +127,7 @@ uint8_t FddController::get(uint8_t pos, uint8_t *dec)
 		double fval = double(pos) / double(range);
 		fval = fval*(t_max - t_min) + t_min;
 		val  = uint8_t(fval);
-		*dec = uint8_t((uint32_t(fval*10. + 5) % 10l));
+		*dec = uint8_t((uint32_t(fval*10. + 0.5) % 10l));
 	}
 	return val;
 }
