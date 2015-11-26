@@ -122,22 +122,27 @@ rht_ack:
 
 	// validate checksum
 	if (pdata[4] == uint8_t(pdata[0] + pdata[1] + pdata[2] + pdata[3])) {
-		int16_t val;
+		int16_t hval;
 		// convert to humidity
-		val = pdata[0];
-		val <<= 8;
-		val |= pdata[1];
-		if (val == 0) // treat 0% as an error
+		hval = pdata[0];
+		hval <<= 8;
+		hval |= pdata[1];
+		// treat 0% as an error
+		if (hval == 0)
 			return -5;
-		rh = val / 10.0;
 
-		val = (int16_t)(pdata[2] & 0x7F);
-		val <<= 8;
-		val |= pdata[3];
+		int16_t tval;
+		tval = (int16_t)(pdata[2] & 0x7F);
+		tval <<= 8;
+		tval |= pdata[3];
 		if (pdata[2] & 0x80)
-			val *= -1;
-		t = val/10.0;
+			tval *= -1;
+		// treat negative as an error
+		if (tval < 0)
+			return -5;
 
+		rh = hval / 10.0;
+		t = tval/10.0;
 		memcpy(data, pdata, 5);
 		return 0;
 	}
