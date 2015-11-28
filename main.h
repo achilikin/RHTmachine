@@ -22,9 +22,8 @@ static inline uint8_t get_disp_mode(void) {
 	return 0;
 }
 
-#define HIST_SIZE 120
-extern uint8_t tday[];
-extern uint8_t hday[];
+#define ESTAT_SIZE 6
+extern uint32_t estat[];
 
 #define SEC_HOUR (3600l)
 #define SEC_DAY  (86400l)

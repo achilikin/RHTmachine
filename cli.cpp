@@ -48,7 +48,7 @@ static const char ps_config[] PROGMEM = "config";
 const char ps_version[] PROGMEM = "version";
 const char ps_sensors[] PROGMEM = "%s L %u\n";
 const char ps_time[] PROGMEM = "%02u:%02u:%02u ";
-const char ps_verstr[] PROGMEM = "2015-11-22, 22,280/1339 (73/65%) bytes";
+const char ps_verstr[] PROGMEM = "1511-28, 22,572/1177 (73/57%) bytes";
 
 static int8_t set_rtc_time(char *str);
 
@@ -77,6 +77,10 @@ void print_status(uint8_t echo_only)
 		printf_P(disp[1 + (pins & ALT_PIN)]);
 		printf_P(PSTR("\n24 hour   : %s\n"), is_on(pins & HIST_24H));
 		printf_P(PSTR("config mod: %s\n"), is_on(flags & CONFIG_MODE));
+		printf_P(PSTR("poll stats:"));
+		for(uint8_t i = 0; i < ESTAT_SIZE; i++)
+			printf(" %lu", estat[i]);
+		puts("");
 	}
 	printf_P(PSTR("verbose   : %s\n"), is_on(flags & ECHO_VERBOSE));
 	printf_P(PSTR("extra echo: %s\n"), is_on(flags & ECHO_EXTRA));

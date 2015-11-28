@@ -33,7 +33,7 @@ extern "C" {
 #endif
 
 #ifndef CMD_LEN
-#define CMD_LEN 0x7F // big enough for our needs
+#define CMD_LEN 0x1F // big enough for our needs
 #endif
 
 #define CLI_EOK      0 // success

@@ -5,6 +5,8 @@ Requires couple of files from my [YAHL](https://github.com/achilikin/Galileo/tre
 
 ![RHTmachine](https://rawgithub.com/achilikin/RHTmachine/master/files/rht-machine.svg)
 
+Change default Arduino H fuse from 0xDA to 0xD2 to preserve EEPROM memory.
+
 Commands available via serial port (38400 baud):
 
 ```
@@ -34,6 +36,6 @@ Commands available via serial port (38400 baud):
 * _set contrast_: sets OLED display contrast, default is 64
 * _echo rht|thist|extra|verbose on|off_: sets different debug echo options
 
-Current version: ```015-11-22, 22,280/1339 (73/65%) bytes```
+Current version: ```1511-28, 22,572/1177 (73/57%) bytes```
 
 # License: MIT

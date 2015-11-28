@@ -99,33 +99,48 @@ AnalogueGauge gauge(d_gauge, hmap, sizeof(hmap)/sizeof(hmap[0]));
 FddController fdd(d_dir, d_eot, d_step, FDD_RANGE);
 
 // temperature for averaging
-#define TAVR_LEN 40
-uint32_t tavridx;
-float tavr[TAVR_LEN];
-static int8_t get_tavr(float delta, uint8_t dbg);
+#define TTREND_LEN 40
+uint32_t ttrendidx;
+float ttrend[TTREND_LEN];
+static int8_t get_ttrend(float delta, uint8_t dbg);
 
-uint32_t htime;   // last write to history
 uint32_t uptime; 
 uint32_t rtctime; // real-time clock time (if DS3231 is connected)
 
 static int8_t rtc_sync(void);
 
+// rht poll stats
+uint32_t estat[ESTAT_SIZE];
+
 uint8_t pins;
 uint8_t flags;
 
-uint8_t t6idx;  // last 6 min index
-uint8_t t6[24]; // last 6 min of temp
-uint8_t h6[24]; // last 6 min of humidity
-uint8_t l6[24]; // last 6 min of light
+#define HAVR_SIZE 24
+#define POLL_INTERVAL 15
+#define HIST_INTERVAL (int16_t(HAVR_SIZE) * int16_t(POLL_INTERVAL))
+
+uint8_t avridx;  // averaging index
+uint8_t avrsize;
+// averaging arrays
+uint8_t tavr[HAVR_SIZE];
+uint8_t havr[HAVR_SIZE];
+uint8_t lavr[HAVR_SIZE];
 
 uint8_t trange[2] = {  0, FDD_RANGE };
 uint8_t hrange[2] = {  0, 255 };
 uint8_t lrange[2] = {  0, 127 };
 
-uint8_t tdidx;
+#define HIST_SIZE     120
+int16_t hinterval;
 uint8_t tday[HIST_SIZE]; // last 12 (default) or 24 hour history
 uint8_t hday[HIST_SIZE];
 uint8_t lday[HIST_SIZE];
+
+#define INIT_EEPROM 0
+uint8_t EEMEM em_tday[HIST_SIZE];
+uint8_t EEMEM em_hday[HIST_SIZE];
+uint8_t EEMEM em_lday[HIST_SIZE];
+uint8_t EEMEM em_estat[sizeof(uint32_t)*ESTAT_SIZE];
 
 // setup all global variables
 void setup()
@@ -137,6 +152,19 @@ void setup()
 	puts_P(ps_version);
 	puts_P(ps_verstr);
 
+#if INIT_EEPROM
+	memset(tday, 0, HIST_SIZE);
+	eeprom_write_block(tday, em_estat, sizeof(estat));
+	eeprom_write_block(tday, em_tday, HIST_SIZE);
+	eeprom_write_block(tday, em_hday, HIST_SIZE);
+	eeprom_write_block(tday, em_lday, HIST_SIZE);
+#endif
+
+	eeprom_read_block((void *)estat, (const void *)em_estat, sizeof(estat));
+	eeprom_read_block((void *)tday, (const void *)em_tday, HIST_SIZE);
+	eeprom_read_block((void *)hday, (const void *)em_hday, HIST_SIZE);
+	eeprom_read_block((void *)lday, (const void *)em_lday, HIST_SIZE);
+
 	// configuration pins
 	pinMode(d_alt, INPUT_PULLUP);
 	pinMode(disp_t, INPUT_PULLUP);
@@ -144,16 +172,18 @@ void setup()
 	pinMode(d_attached, INPUT_PULLUP);
 	analogRead(a_light);
 
-	htime = 0;
 	uptime = 0;
 	rtctime = 0;
 	pins = flags = 0;
 	if (digitalRead(d_attached) == LOW)
 		pins |= CD_ATTACHED;
-	if (digitalRead(d_hist_12) == LOW)
+	hinterval = HIST_INTERVAL;
+	if (digitalRead(d_hist_12) == LOW) {
 		pins |= HIST_24H;
+		hinterval *= 2;
+	}
 
-	printf_P(PSTR("Starting at %luHz"), F_CPU);
+	printf_P(PSTR("Running at %luHz"), F_CPU);
 	i2c_init();
 	delay(2);
 	rtc_sync();
@@ -168,21 +198,13 @@ void setup()
 		}
 	}
 	printf("\n");
-	printf_P(PSTR("Timers: led %lu fdd %lu\n"),
-		tick_led.get_interval(), tick_fdd.get_interval());
 
 	rht.begin();
 	fdd.begin(18.5, 25.25);
 	gauge.begin(0.0, 100.0);
 
-	t6idx = 0;
-	tdidx = 0;
-	tavridx = 0;
-	for (uint8_t i = 0; i < 120; i++) {
-		tday[i] = 0;
-		hday[i] = 0;
-		lday[i] = 0;
-	}
+	avridx = avrsize = 0;
+	ttrendidx = 0;
 
 	// PWM outputs for RGB LED
 	pinMode(led_red, OUTPUT);
@@ -232,7 +254,7 @@ void loop()
 		tms = millis();
 		tick_led.tick(tms, NULL);
 		if (tick_sec.tick(tms, NULL)) {
-			if (!(flags & CONFIG_MODE) && !(rtctime % 15l))
+			if (!(flags & CONFIG_MODE) && !(rtctime % POLL_INTERVAL))
 				rht_poll();
 		}
 		if (!(flags & CONFIG_MODE))
@@ -259,63 +281,74 @@ int8_t rht_poll(void)
 
 	if (!error) {
 		if (!(flags & HIST_INIT)) {
-			for(uint8_t i = 0; i < TAVR_LEN; i++)
-				tavr[i] = rht.get_temp();
+			for(uint8_t i = 0; i < TTREND_LEN; i++)
+				ttrend[i] = rht.get_temp();
 			flags |= HIST_INIT;
 		}
 	}
 	else if (verbose)
 		printf_P(PSTR("Error %d, "), error);
 
+	error = (-1 * error);
+	if (error < ESTAT_SIZE)
+		estat[error] += 1;
+	// store statistic in the EEPROM
+	uint8_t *pstat = (uint8_t *)&estat[0];
+	for(uint8_t i = 0; i < sizeof(estat); i++)
+		eeprom_update_byte(&em_estat[i], pstat[i]);
+
 	get_rht_data(disp);
 	if (attached)
 		ossd_putlx(0, -1, disp, TEXT_UNDERLINE);
 
 	light = uint8_t(analogRead(a_light) >> 2);
-	if (light < lrange[0]) // too low? try again
-		light = uint8_t(analogRead(a_light) >> 2);
 	if (verbose)
 		printf_P(ps_sensors, disp, light);
 
 	// store to history
 	uint8_t fpos = fdd.set(rht.get_temp());
 	uint8_t gpos = gauge.set(rht.get_humidity());
-	t6[t6idx] = fpos;
-	h6[t6idx] = gpos;
-	l6[t6idx] = light;
+	tavr[avridx] = fpos;
+	havr[avridx] = gpos;
+	lavr[avridx] = light;
+	if (avrsize < HAVR_SIZE)
+		avrsize++;
 	// for 24 hour mode store only every second reading
 	tick++;
 	if (pins & HIST_24H)
-		t6idx += tick & 0x01;
+		avridx += tick & 0x01;
 	else
-		t6idx++;
-	if (t6idx == 24) {
-		t6idx = 0;
-		htime = rtctime;
-		uint16_t tavr = 0;
-		uint16_t havr = 0;
-		uint16_t lavr = 0;
-		for (uint8_t i = 0; i < 24; i++) {
-			tavr += t6[i];
-			havr += h6[i];
-			lavr += l6[i];
+		avridx++;
+	avridx %= HAVR_SIZE;
+
+	if (!(rtctime % hinterval)) {
+		uint16_t avrt = 0;
+		uint16_t avrh = 0;
+		uint16_t avrl = 0;
+		for (uint8_t i = 0; i < avrsize; i++) {
+			avrt += tavr[i];
+			avrh += havr[i];
+			avrl += lavr[i];
 		}
-		tdidx = (tdidx + 1) % HIST_SIZE;
-		tday[tdidx] = tavr / 24;
-		hday[tdidx] = havr / 24;
-		lday[tdidx] = lavr / 24;
+		uint8_t tdidx = uint8_t(uint32_t(rtctime / hinterval)) % HIST_SIZE;
+		tday[tdidx] = avrt / avrsize;
+		hday[tdidx] = avrh / avrsize;
+		lday[tdidx] = avrl / avrsize;
+		eeprom_update_byte(&em_tday[tdidx], tday[tdidx]);
+		eeprom_update_byte(&em_hday[tdidx], hday[tdidx]);
+		eeprom_update_byte(&em_lday[tdidx], lday[tdidx]);
 		disp_hist();
 		if (verbose)
 			print_hist(1, 0);
 	}
 
 	// store for averaging
-	tavr[tavridx++] = rht.get_temp();
-	tavridx = tavridx % TAVR_LEN;
+	ttrend[ttrendidx++] = rht.get_temp();
+	ttrendidx = ttrendidx % TTREND_LEN;
 
 	// get temperature gradient
 	static const char *tdir[3] = { PSTR(" (falling)"), PSTR(" (stable)"), PSTR(" (rising)") };
-	int8_t tgrad = get_tavr(0.25, flags & ECHO_THIST);
+	int8_t tgrad = get_ttrend(0.25, flags & ECHO_THIST);
 	tgrad += 1; // translate -1, 0, 1 to 0,1,2
 	if (rgb_led != tgrad) {
 		digitalWrite(rgb[rgb_led], LOW);
@@ -347,22 +380,22 @@ int8_t calibrate(void *data)
 // -1 - falling
 //  0 - same
 //  1 - rising
-int8_t get_tavr(double delta, uint8_t dbg)
+int8_t get_ttrend(double delta, uint8_t dbg)
 {
 	double val[2];
 
 	// accumulate temperature for the first half of the history
 	// (current time - TAVR_LEN/2)
 	val[0] = 0.0;
-	for(uint8_t i = 0; i < TAVR_LEN/2; i++) {
-		uint8_t idx = (tavridx + i) % TAVR_LEN;
-		val[0] += tavr[idx];
+	for(uint8_t i = 0; i < TTREND_LEN/2; i++) {
+		uint8_t idx = (ttrendidx + i) % TTREND_LEN;
+		val[0] += ttrend[idx];
 		if (dbg) {
-			Serial.print(tavr[idx]);
+			Serial.print(ttrend[idx]);
 			Serial.print(" ");
 		}
 	}
-	val[0] = val[0]/(TAVR_LEN/2);
+	val[0] = val[0]/(TTREND_LEN/2);
 	if (dbg) {
 		Serial.print("(");
 		Serial.print(val[0]);
@@ -372,15 +405,15 @@ int8_t get_tavr(double delta, uint8_t dbg)
 	// accumulate temperature for the second half of the history
 	// (TAVR_LEN/2 to the current time)
 	val[1] = 0.0;
-	for(uint8_t i = TAVR_LEN/2; i < TAVR_LEN; i++) {
-		uint8_t idx = (tavridx + i) % TAVR_LEN;
-		val[1] += tavr[idx];
+	for(uint8_t i = TTREND_LEN/2; i < TTREND_LEN; i++) {
+		uint8_t idx = (ttrendidx + i) % TTREND_LEN;
+		val[1] += ttrend[idx];
 		if (dbg) {
-			Serial.print(tavr[idx]);
+			Serial.print(ttrend[idx]);
 			Serial.print(" ");
 		}
 	}
-	val[1] = val[1]/(TAVR_LEN/2);
+	val[1] = val[1]/(TTREND_LEN/2);
 	if (dbg) {
 		Serial.print("(");
 		Serial.print(val[1]);
@@ -419,7 +452,7 @@ int8_t led_dimmer(void *data)
 // one second timer to track uptime
 int8_t second(void *data)
 {
-	rtctime++;
+	rtctime = (rtctime + 1) % SEC_DAY;
 	uptime++;
 	if (!(uptime % 60l))
 		rtc_sync();
@@ -485,7 +518,8 @@ void disp_hist(void)
 	uint8_t bar[6];
 	uint8_t range = drange[mode][1] - drange[mode][0];
 	const uint8_t *day = dhist[mode];
-	for (uint8_t idx = tdidx, i = 0; i < HIST_SIZE; i++) {
+	uint8_t idx = uint8_t(uint32_t(rtctime / hinterval)) % HIST_SIZE;
+	for (uint8_t i = 0; i < HIST_SIZE; i++) {
 		uint8_t val = normilize(day[idx], drange[mode]);
 		set_bar(bar, val, range);
 		for (uint8_t n = 0; n < 6; n++) {
@@ -512,23 +546,22 @@ void print_time(uint32_t sec, uint8_t day)
 
 void print_hist(uint8_t nrec, uint8_t header)
 {
-	int32_t time = htime;
-	int32_t span = 360l;
-	if (pins & HIST_24H)
-		span *= 2;
+	int32_t time = (rtctime / hinterval);
+	uint8_t idx = uint8_t(time) % HIST_SIZE;
+	time *= hinterval;
 	if (!nrec || (nrec > HIST_SIZE))
 		nrec = HIST_SIZE;
 	if (header)
 		printf_P(PSTR("    Time     T    H  L\n"));
-	for (uint8_t idx = tdidx, i = 0; i < nrec; i++) {
-		if (hday[idx] == 0) // 0 is invalid, so we can use it as end-of-list
-			break;
+	for (uint8_t i = 0; i < nrec; i++) {
 		uint8_t tdec, hdec;
 		uint8_t tval = fdd.get(tday[idx], &tdec);
 		uint8_t hval = gauge.get(hday[idx], &hdec);
 		print_time(time, 0);
-		printf_P(PSTR(" %2u.%u %2u.%u %u\n"), tval, tdec, hval, hdec, lday[idx]);
-		time -= span;
+		if (hday[idx] != 0) // 0 is invalid
+			printf_P(PSTR(" %2u.%u %2u.%u %u"), tval, tdec, hval, hdec, lday[idx]);
+		puts("");
+		time -= hinterval;
 		if (time < 0)
 			time += SEC_DAY;
 		if (idx > 0)
@@ -554,17 +587,15 @@ void get_rht_data(char *buf)
 int8_t rtc_sync(void)
 {
 	uint8_t h, m, s;
-	if (ds3231_get_time(&h, &m, &s)) {
-		rtctime %= 86400l;
+	if (ds3231_get_time(&h, &m, &s))
 		return -1;
-	}
-	rtctime = h * 3600l + m * 60l + s;
+	rtctime = h * SEC_HOUR + m * 60l + s;
 	return 0;
 }
 
 void set_trigger(uint8_t on)
 {
-	if (on){
+	if (on) {
 		pinMode(d_trigger, OUTPUT);
 		digitalWrite(d_trigger, HIGH);
 		return;
