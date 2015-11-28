@@ -51,32 +51,24 @@ int8_t RhtClient::poll(uint8_t dbg)
 	uint16_t counter;
 	uint32_t stamp;
 
-	for (uint8_t ntry = 0; ntry < 2; ntry++) {
-		if (dbg) {
-			if (ntry)
-				printf_P(PSTR("re-"));
-			printf_P(PSTR("starting RHT poll... "));
-		}
-		pinMode(d_data, OUTPUT_FAST);
-		digitalWrite(d_data, LOW);
-		if (start > 0) {
-			delay(start);
-			counter = start * 1000l;
-		}
-		else {
-			delayMicroseconds(2);
-			counter = 60000l;
-		}
-		stamp = millis();
-		pinMode(d_data, INPUT_FAST); // RHT sensor input
-		// wait for the sensor to pull down
-		for (state = 0; state < counter && digitalRead(d_data) == HIGH; state++);
-		if (state < counter)
-			goto rht_ack;
-	}
-	return -1;
+	if (dbg)
+		printf_P(PSTR("starting RHT poll... "));
 
-rht_ack:
+	pinMode(d_data, OUTPUT_FAST);
+	digitalWrite(d_data, LOW);
+	if (start > 0) {
+		delay(start);
+		counter = start * 1000l;
+	}
+	else {
+		delayMicroseconds(2);
+		counter = 60000l;
+	}
+	stamp = millis();
+	pinMode(d_data, INPUT_FAST); // RHT sensor input
+	// wait for the sensor to pull down
+	for (state = 0; state < counter && digitalRead(d_data) == HIGH; state++);
+	if (state == counter) return -1;
     // measure sensor start bit HIGH state interval
     for(state = 0; state < counter && digitalRead(d_data) == LOW; state++);
     if (state == counter) return -2;

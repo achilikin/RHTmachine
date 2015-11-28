@@ -37,6 +37,7 @@ extern const char ps_version[];
 extern const char ps_sensors[];
 
 void disp_hist(void);
+void reset_hist(void);
 void print_hist(uint8_t nrec, uint8_t header);
 void print_time(uint32_t time, uint8_t day);
 void print_status(uint8_t echo_only);

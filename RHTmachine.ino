@@ -43,6 +43,7 @@ static const uint8_t d_trigger = 7; // connected to a pull down npn
 
 static const uint8_t d_data = 3;
 static const uint8_t d_gauge = 5;
+static const uint8_t d_busy = 8;
 
 static const uint8_t led_red = 9;
 static const uint8_t led_blue = 11;
@@ -165,6 +166,13 @@ void setup()
 	eeprom_read_block((void *)hday, (const void *)em_hday, HIST_SIZE);
 	eeprom_read_block((void *)lday, (const void *)em_lday, HIST_SIZE);
 
+	// PWM outputs for RGB LED
+	pinMode(led_red, OUTPUT);
+	pinMode(led_green, OUTPUT);
+	pinMode(led_blue, OUTPUT);
+	// RHT busy
+	pinMode(d_busy, INPUT);
+
 	// configuration pins
 	pinMode(d_alt, INPUT_PULLUP);
 	pinMode(disp_t, INPUT_PULLUP);
@@ -206,10 +214,6 @@ void setup()
 	avridx = avrsize = 0;
 	ttrendidx = 0;
 
-	// PWM outputs for RGB LED
-	pinMode(led_red, OUTPUT);
-	pinMode(led_green, OUTPUT);
-	pinMode(led_blue, OUTPUT);
 	// trigger output
 	set_trigger(0);
 	// default values
@@ -275,8 +279,11 @@ int8_t rht_poll(void)
 	if (verbose)
 		print_time(rtctime, 0);
 	led.on();
-	if (attached)
+	if (attached) {
+		while(digitalRead(d_busy))
+			delay(1);
 		error = rht.poll(flags & ECHO_RHT);
+	}
 	led.off();
 
 	if (!error) {
@@ -542,6 +549,13 @@ void print_time(uint32_t sec, uint8_t day)
 	if (day && d)
 		printf_P(PSTR("%lu days "), d);
 	printf_P(ps_time, h, m, s);
+}
+
+void reset_hist(void)
+{
+	memset(tday, 0, HIST_SIZE);
+	memset(hday, 0, HIST_SIZE);
+	memset(lday, 0, HIST_SIZE);
 }
 
 void print_hist(uint8_t nrec, uint8_t header)

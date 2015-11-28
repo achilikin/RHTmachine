@@ -41,14 +41,16 @@ static const char ps_help[] PROGMEM =
 	"  set trigger 1|0\n" // turn trigger on/off
 	"  set contrast 0-255\n"
 	"  set time hh:mm:ss\n"
+	"  reset stat|hist\n"
 	"  echo rht|thist|extra|verbose on|off"; // debug echo on/off
 static const char ps_on[] PROGMEM = "on";
 static const char ps_off[] PROGMEM = "off";
 static const char ps_config[] PROGMEM = "config";
+static const char ps_thist[] PROGMEM = "thist";
 const char ps_version[] PROGMEM = "version";
 const char ps_sensors[] PROGMEM = "%s L %u\n";
 const char ps_time[] PROGMEM = "%02u:%02u:%02u ";
-const char ps_verstr[] PROGMEM = "1511-28, 22,572/1177 (73/57%) bytes";
+const char ps_verstr[] PROGMEM = "1511-28, 22,710/1177 (74/57%) bytes";
 
 static int8_t set_rtc_time(char *str);
 
@@ -122,6 +124,19 @@ int8_t cli_proc(char *buf, void *ptr)
 		return 0;
 	}
 
+	if (str_is(cmd, PSTR("reset"))) {
+		if (str_is(arg, PSTR("stat"))) {
+			uint8_t *pstat = (uint8_t *)estat;
+			for(uint8_t i = 0; i < sizeof(uint32_t)*ESTAT_SIZE; i++)
+				pstat[i] = 0;
+		} else  if (str_is(arg, ps_thist + 1)) {
+			reset_hist();
+			disp_hist();
+		} else
+			return CLI_EARG;
+		return 0;
+	}
+
 	if (str_is(cmd, PSTR("print"))) {
 		if (str_is(arg, PSTR("log")))
 			print_hist(atoi(val), 1);
@@ -166,7 +181,7 @@ int8_t cli_proc(char *buf, void *ptr)
 		}
 		if (str_is(arg, PSTR("rht")))
 			set = ECHO_RHT;
-		if (str_is(arg, PSTR("thist")))
+		if (str_is(arg, ps_thist))
 			set = ECHO_THIST;
 		if (str_is(arg, PSTR("extra")))
 			set = ECHO_EXTRA;

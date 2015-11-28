@@ -14,6 +14,7 @@ Commands available via serial port (38400 baud):
   mem
   status
   version
+  reset stat
   print now
   print log [n]
   config on|off
@@ -27,6 +28,7 @@ Commands available via serial port (38400 baud):
 * _mem_: show available memory
 * _status_: show current settings
 * _version_: show compilation date and program/memory used
+* _reset stat_: reset rht poll statistics
 * _print now_: print current values
 * _print log [n]_: print log for the last 12/24h (or n last records), timing from the current time
 * _config on|off_: set configuration mode, if on - disables gauge and needle updates
@@ -36,6 +38,6 @@ Commands available via serial port (38400 baud):
 * _set contrast_: sets OLED display contrast, default is 64
 * _echo rht|thist|extra|verbose on|off_: sets different debug echo options
 
-Current version: ```1511-28, 22,572/1177 (73/57%) bytes```
+Current version: ```1511-28, 22,710/1177 (73/57%) bytes```
 
 # License: MIT
