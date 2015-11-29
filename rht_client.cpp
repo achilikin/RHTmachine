@@ -34,9 +34,9 @@
 RhtClient::RhtClient(int data, uint8_t start_delay)
 {
 	d_data = data;
-	start  = start_delay;
-	if (start && start < 2)
-		start= 2;
+	start = start_delay;
+	if (start < 2)
+		start = 2;
 }
 
 void RhtClient::begin(void)

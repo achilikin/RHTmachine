@@ -236,7 +236,7 @@ void loop()
 		fdd.init();
 		// set 20 C for scale calibration
 		fdd.set(20.0);
-		delay(2000);
+		delay(5000);
 		rht_poll();
 	}
 
@@ -260,6 +260,9 @@ void loop()
 		if (tick_sec.tick(tms, NULL)) {
 			if (!(flags & CONFIG_MODE) && !(rtctime % POLL_INTERVAL))
 				rht_poll();
+			uint8_t sync = rtctime % 60l;
+			if (sync == 5 || sync == 35)
+				rtc_sync();
 		}
 		if (!(flags & CONFIG_MODE))
 			tick_fdd.tick(tms, NULL);
@@ -459,10 +462,8 @@ int8_t led_dimmer(void *data)
 // one second timer to track uptime
 int8_t second(void *data)
 {
-	rtctime = (rtctime + 1) % SEC_DAY;
 	uptime++;
-	if (!(uptime % 60l))
-		rtc_sync();
+	rtctime = (rtctime + 1) % SEC_DAY;
 #if 0
 	uint8_t h, m, s;
 	uint8_t Y, M, D;

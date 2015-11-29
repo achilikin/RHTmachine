@@ -38,6 +38,6 @@ Commands available via serial port (38400 baud):
 * _set contrast_: sets OLED display contrast, default is 64
 * _echo rht|thist|extra|verbose on|off_: sets different debug echo options
 
-Current version: ```1511-28, 22,710/1177 (73/57%) bytes```
+Current version: ```1511-29, 22,758/1175 (74/57%) bytes```
 
 # License: MIT
