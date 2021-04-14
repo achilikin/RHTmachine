@@ -3,7 +3,7 @@ Wild combination of a floppy disk drive control board, a CD frame with step moto
 
 Requires couple of files from my [YAHL](https://github.com/achilikin/Galileo/tree/master/YAHL) library
 
-![RHTmachine](https://rawgithub.com/achilikin/RHTmachine/master/files/rht-machine.svg)
+![RHTmachine](./files/rht-machine.svg)
 
 Change default Arduino H fuse from 0xDA to 0xD2 to preserve EEPROM memory.
 
